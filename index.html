@@ -66,6 +66,13 @@ iframe {
   position: relative;
   top: -.8em;
 }
+.ready {
+  position: fixed;
+  top: 0;
+  left: 0;
+  padding: 5px;
+  background-color: white;
+}
 
 /* Portrait and Landscape - iPhone 6 */
 @media only screen
@@ -74,17 +81,19 @@ iframe {
   and (-webkit-min-device-pixel-ratio: 2) {
   .lineup {
     display: block;
+    position: relative;
   }
 
   .page {
-    position: fixed;
+    position: absolute;
     margin: 0px;
     width: 85%;
     background: white;
   }
 
   body {
-    background: green
+    background: green;
+    margin: 0px;
   }
 }
 
@@ -149,14 +158,14 @@ var Lineup = React.createClass({
     console.log("Detail: " + detail)
     var newLineup = this.state.lineup.slice(0);
     newLineup.push(this.createInstance(detail.context, detail.site, detail.slug, detail.title))
-    this.setState({ lineup: newLineup })
+    this.setState({ lineup: newLineup, ready: 'append' })
   },
   replaceInLineup: function(event) {
     var detail = event.detail
     var lastDesiredIndex = this.state.lineup.findIndex(function(item) { return item.id == detail.instance.id})
     var newLineup = this.state.lineup.slice(0, lastDesiredIndex + 1);
     newLineup.push(this.createInstance(detail.context, detail.site, detail.slug, detail.title))
-    this.setState({ lineup: newLineup })
+    this.setState({ lineup: newLineup, ready: 'replace' })
   },
   pageAvailable: function(event) {
     var detail = event.detail
@@ -188,6 +197,7 @@ var Lineup = React.createClass({
 
     if (!loading) {
       window.location.hash = "#" + this.urlFromInstances(this.state.lineup)
+      this.state.ready = 'done'
     }
   },
   render: function() {
@@ -203,7 +213,10 @@ var Lineup = React.createClass({
       }
     }
 
-    return <div className="lineup">{this.state.lineup.map(toSegment)}</div>
+    return <div>
+        <div className="lineup">{this.state.lineup.map(toSegment)}</div>
+        <div className="ready">{this.state.ready||"starting"}</div>
+        </div>
   }
 })
 
@@ -225,18 +238,19 @@ var Resolution = React.createClass({
         }
       }
 
-      this.serverRequest = $.get(source, function (result) {
-        var resolvedContext = [site]
-        var journal = result.journal || []
-        journal.reverse().forEach(ammend(resolvedContext))
+      this.serverRequest = $.getJSON(source)
+        .done( function (result) {
+            var resolvedContext = [site]
+            var journal = result.journal || []
+            journal.reverse().forEach(ammend(resolvedContext))
 
-        var detail = { id: that.props.instance.id, context: resolvedContext,
-                       site: site, slug: that.props.instance.slug,
-                       title: result.title, story: result.story }
-        var event = new CustomEvent('pageAvailable', { detail: detail })
-        window.dispatchEvent(event)
-      }).fail(function (result) {
-        that.resolve(context, slug, ++i)
+            var detail = { id: that.props.instance.id, context: resolvedContext,
+                           site: site, slug: that.props.instance.slug,
+                           title: result.title, story: result.story }
+            var event = new CustomEvent('pageAvailable', { detail: detail })
+            window.dispatchEvent(event)})
+        .fail(function (result) {
+            that.resolve(context, slug, ++i)
       });
     },
     componentDidMount: function() {
@@ -258,17 +272,17 @@ var Remote = React.createClass({
         }
 
         var source = 'http://' + this.props.instance.site + '/' + this.props.instance.slug + '.json'
-        this.serverRequest = $.get(source, function (result) {
-          var context = [this.props.instance.site]
-          var journal = result.journal || []
-          journal.reverse().forEach(ammend(context))
-
-          var detail = { id: this.props.instance.id, context: context,
-                         site: this.props.instance.site, slug: this.props.instance.slug,
-                         title: result.title, story: result.story }
-          var event = new CustomEvent('pageAvailable', { detail: detail })
-          window.dispatchEvent(event)
-        }.bind(this));
+        this.serverRequest = $.getJSON(source)
+            .done( function (result) {
+              var context = [this.props.instance.site]
+              var journal = result.journal || []
+              journal.reverse().forEach(ammend(context))
+              var detail = { id: this.props.instance.id, context: context,
+                             site: this.props.instance.site, slug: this.props.instance.slug,
+                             title: result.title, story: result.story }
+              var event = new CustomEvent('pageAvailable', { detail: detail })
+              window.dispatchEvent(event)
+            }.bind(this));
     },
     componentWillUnmount: function() {
         this.serverRequest.abort();
@@ -279,6 +293,39 @@ var Remote = React.createClass({
 });
 
 var Page = React.createClass({
+    getInitialState: function() {
+      return {
+        position: {
+          top: 0,
+          left: 0
+        }
+      }
+    },
+    handleTouchStart: function(event) {
+      var changedTouch = event.nativeEvent.changedTouches[0]
+
+      var newState = Object.assign({}, this.state)
+      newState.touch = {
+        original: Object.assign({}, this.state.position),
+        clientX: changedTouch.clientX,
+        clientY: changedTouch.clientY
+      }
+      this.setState(newState)
+    },
+    handleTouchMove: function(event) {
+      var changedTouch = event.nativeEvent.changedTouches[0]
+
+      var deltaX = changedTouch.clientX - this.state.touch.clientX
+      var deltaY = changedTouch.clientY - this.state.touch.clientY
+
+      var newState = Object.assign({}, this.state)
+      newState.position = {
+        top: this.state.touch.original.top + deltaY,
+        left: this.state.touch.original.left + deltaX
+      }
+      this.setState(newState)
+      event.preventDefault()
+    },
     render: function(){
         function item(instance) {
           return function(item, index){
@@ -291,15 +338,13 @@ var Page = React.createClass({
         var context = this.props.instance.context || [this.props.instance.site]
 
         return (
-            <div>
-              <div className="page">
-                  <h2>
-                    <img style={{width: 18, marginRight: 5}} src={'http://' + this.props.instance.site + '/favicon.png'}  />
-                    {this.props.instance.title || this.props.instance.slug}
-                  </h2>
-                  {items.map(item(this.props.instance))}
-                  <Footer details={[context.join(" ⇒ ")]} />
-              </div>
+            <div onTouchStart={this.handleTouchStart} onTouchMove={this.handleTouchMove} style={this.state.position} className="page">
+                <h2>
+                  <img style={{width: 18, marginRight: 5}} src={'http://' + this.props.instance.site + '/favicon.png'}  />
+                  {this.props.instance.title || this.props.instance.slug}
+                </h2>
+                {items.map(item(this.props.instance))}
+                <Footer details={[context.join(" ⇒ ")]} />
             </div>
         );
     }
@@ -466,7 +511,7 @@ var InternalLink = React.createClass({
   },
   render: function() {
     var contextTitle = this.props.context.join(" ⇒ ")
-    return <a href="#" title={contextTitle} onClick={this.handleClick}>{this.props.text}</a>
+    return <a href="#" className="internal" title={contextTitle} onClick={this.handleClick}>{this.props.text}</a>
   }
 })
 
@@ -533,7 +578,7 @@ var MarkdownText = React.createClass({
     
     onClick: function(e) {
         var target = e.target
-        if (target.querySelectorAll('a.internal')) {
+        if (target.tagName.toLowerCase() === 'a' && target.className.toLowerCase() === 'internal') {
             var detail = { context: this.props.context, instance: this.props.instance, title: target.getAttribute('title'), slug: target.getAttribute('data-page-name') }
             var eventType = e.nativeEvent.shiftKey ? 'appendToLineup' : 'replaceInLineup'
             var event = new CustomEvent(eventType, { detail: detail })
@@ -541,7 +586,7 @@ var MarkdownText = React.createClass({
             e.preventDefault()
         }
     },
-    
+
     render: function() {
         return <span onClick={this.onClick} dangerouslySetInnerHTML={this.rawMarkup()} />
     }
