@@ -4,7 +4,16 @@ import { Lineup } from './lineup'
 
 import './index.css'
 
-ReactDOM.render(
-  <Lineup />,
-  document.getElementById('content')
-);
+async function main () {
+  var res = await navigator.permissions.request({
+    name: 'network',
+    hostname: '*'
+  });
+  console.log("Network Request " + res.status);
+  ReactDOM.render(
+    <Lineup />,
+    document.getElementById('content')
+  );
+}
+
+main();
